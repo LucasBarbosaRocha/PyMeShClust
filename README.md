@@ -26,7 +26,7 @@ Agrupar sequências de DNA alinhando todas contra todas é caro: são O(n²) ali
 
 A diferença central para o PyKmClust: aqui **você não define o número de clusters**, e sim o quão parecidas as sequências de um cluster precisam ser. O número de clusters é consequência.
 
-### Diferença para o MeShClust original
+### Diferença para o MeShClust do artigo
 O MeShClust treina um GLM que prevê a **identidade de alinhamento** a partir de estatísticas de k-mers e aplica o limiar sobre essa previsão. Aqui o limiar é aplicado direto na similaridade de k-mers, então `-s 0.95` **não** equivale a 95% de identidade no CD-HIT. Implementar o GLM exigiria alinhar pares de sequências para gerar os dados de treino.
 
 ## Como usar
@@ -109,23 +109,31 @@ Tabelas completas em [RESULTADOS.md](RESULTADOS.md) e [resultados.csv](resultado
 * **O genótipo do HBV só aparece com k-mer 6.** K-mers longos capturam diferenças mais finas de sequência.
 * **Os reads curtos quase não afetam o PyMeShClust** (as colunas "todas" e "só rotuladas" são praticamente iguais). Reads que não se parecem com nada formam clusters próprios em vez de puxar os outros, ao contrário do k-means.
 
-### Comparação PyKmClust × PyMeShClust × versão original
+### Comparação PyKmClust × PyMeShClust
 Melhor configuração de cada método (entre parênteses: k-mer e parâmetro).
 
-| Tarefa | PyKmClust (k-means) | PyMeShClust | Original 2020 |
-|---|---|---|---|
-| HBV região | 0.801 (3, k=4) | **0.966** (3, s=0.95, 6 clusters) | 0.867 (k-means k=2) |
-| HBV genótipo | 0.300 (4, k=7) | **0.552** (6, s=0.8, 13 clusters) | 0.025 (k-means k=2) |
-| Bactérias, espécie (todas) | **0.223** (4, k=8) | 0.198 (3, s=0.8, 247 clusters) | 0.033 (MeShClust s=0.95) |
-| Bactérias, gênero (só rotuladas) | **0.329** (5, k=8) | 0.194 (3, s=0.8, 25 clusters) | - |
+| Tarefa | PyKmClust (k-means) | PyMeShClust |
+|---|---|---|
+| HBV região | 0.801 (3, k=4) | **0.966** (3, s=0.95, 6 clusters) |
+| HBV genótipo | 0.300 (4, k=7) | **0.552** (6, s=0.8, 13 clusters) |
+| Bactérias, espécie (todas) | **0.223** (4, k=8) | 0.198 (3, s=0.8, 247 clusters) |
+| Bactérias, gênero (só rotuladas) | **0.329** (5, k=8) | 0.194 (3, s=0.8, 25 clusters) |
 
-O MeShClust original de 2020 teve ARI 0.033 com s=0.95 (353 clusters) e 0.007 com s=0.8 (47 clusters). Com s=0.8, a versão nova chega a 0.198.
+## Conclusões
+1. **A representação importa mais que o algoritmo.** A diferença entre k-means e MeShClust é menor do que a diferença causada pelo tamanho do k-mer ou pela presença de reads curtos. Escolher bem como a sequência vira vetor vem antes de escolher o clustering.
+2. **Nenhum dos dois ganha sempre, porque cada um supõe uma forma diferente para os grupos.**
+   * O **k-means** força exatamente k grupos e divide o espaço em regiões. Vai melhor quando a classe é espalhada (contigs de bactérias vindos de regiões diferentes do genoma). Precisa saber o k e é sensível a outliers.
+   * O **MeShClust** usa um limiar igual para todos os clusters. Encontra bem grupos compactos (regiões do HBV), mas quebra classes espalhadas em muitos clusters pequenos. O ruído forma clusters próprios em vez de contaminar os outros.
+   * A escolha depende do formato dos dados e de saber ou não quantos grupos existem.
+3. **A composição de k-mers mede "que tipo de sequência é", não "quão parecida ela é".** Os dois métodos separam bem a região do genoma e mal o genótipo, que difere em ~8% dos nucleotídeos: mutações pontuais quase não mudam a frequência de k-mers curtos. É por isso que o MeShClust do artigo usa um GLM para converter estatísticas de k-mers em identidade de alinhamento.
+4. **Os dados limitam as conclusões.** O HBV tem só 16 sequências. Nas bactérias, contigs de ~800nt de genes diferentes da mesma espécie têm composições diferentes, então o ARI baixo mistura falha do método com uma tarefa que esse sinal não resolve. Mais da metade do `sequencias.fasta` não tem rótulo.
+5. **A avaliação com rótulo é indispensável.** A quantidade de clusters ou a pureza sozinhas enganam: o MeShClust com limiar 0.95 tem pureza 0.99 nas bactérias, mas ARI 0.05, porque os clusters são quase unitários.
+6. **Uso prático.** Clustering por k-mers sem alinhamento é rápido e escala bem (200 mil sequências em segundos, com pouca memória). Serve para agrupamento grosso e pré-filtragem: separar tipos de sequência, reduzir redundância, fazer um primeiro corte antes de alinhar. Não substitui métodos baseados em identidade para separar variantes próximas, como genótipos ou cepas.
 
-### O que os números mostram
-* **A composição de k-mers separa bem a região do genoma, e mal o genótipo.** Genótipos do HBV diferem em ~8% dos nucleotídeos, o que quase não muda a frequência de k-mers curtos. Já um trecho do gene S e um genoma completo têm composições bem diferentes.
-* **O PyMeShClust vai melhor no HBV, o k-means nas bactérias.** Como o limiar é o mesmo para todos os clusters, o PyMeShClust separa grupos compactos (HBV), mas fragmenta grupos espalhados (contigs de regiões diferentes do mesmo genoma) em muitos clusters pequenos: pureza alta, ARI baixo.
-* **Nas bactérias, nenhum método passa de ~0.33.** Os contigs têm ~800nt e a "assinatura genômica" por k-mers costuma precisar de trechos de vários kb para separar espécies.
-* **Cuidado com o HBV:** são só 16 sequências; uma sequência trocada de cluster muda bastante o ARI.
+### Próximos passos
+* Um dataset rotulado maior: centenas de genomas completos de HBV com genótipo conhecido (por exemplo, do HBVdb).
+* Comparar com o CD-HIT nos mesmos dados, para medir quanto se perde sem alinhamento.
+* Implementar o GLM do MeShClust (alinhando uma amostra de pares para treino) ou usar distâncias MinHash no estilo Mash.
 
 ## Arquivos
 * `main.py`: linha de comando do clustering.
@@ -133,7 +141,7 @@ O MeShClust original de 2020 teve ARI 0.033 com s=0.95 (353 clusters) e 0.007 co
 * `meshclust.py`: as duas fases do algoritmo.
 * `avaliar.py`: rótulos, ARI, NMI e pureza.
 * `experimentos.py`: gera `RESULTADOS.md` e `resultados.csv`.
-* `original/`: versão original de 2020 (código, saídas e logs), mantida como referência.
+* `original/`: primeira versão do código (2020).
 
 ## Memória
 Todas as sequências ficam em uma matriz numpy `(N, 4^k)` float32 e um vetor de rótulos. As similaridades são calculadas em blocos de 65536 linhas. Cada k-mer a mais multiplica a memória por 4:
@@ -144,20 +152,3 @@ Todas as sequências ficam em uma matriz numpy `(N, 4^k)` float32 e um vetor de 
 | 1 milhão | 256 MB | 1 GB | 4 GB | 16 GB |
 
 Com 200 mil sequências de 800nt (arquivo de 167MB), k-mer 3 e limiar 0.9: ~130MB de pico de RSS e ~4s. O tempo cresce com N × quantidade de clusters, então muitos clusters pequenos deixam a execução mais lenta.
-
-## Mudanças em relação à versão original (2020)
-O problema de memória descrito na época vinha de:
-* cada sequência guardava uma tabela `(74, 4)` quando só uma coluna era usada;
-* os blocos de 500 sequências não liberavam memória: toda sequência continuava guardada nos clusters;
-* o mean shift montava listas `[posição, valor]` para cada membro e removia duplicatas com `not in` (O(m²)), refazendo tudo a cada iteração;
-* `NamedTemporaryFile(delete=False)` deixava um arquivo por sequência no `/tmp`, que ocupa RAM quando o `/tmp` é tmpfs.
-
-Além disso:
-* O histograma era a **distribuição de abundância** do khmer (quantos k-mers aparecem 1x, 2x, ...), não a contagem de cada k-mer, e as posições ficavam desalinhadas entre sequências. Agora é o vetor de frequência de k-mers normalizado.
-* O `MeanShift` do scikit-learn agrupava pontos `(posição, contagem)` e os rótulos eram usados como se fossem contagens. Agora o passo de mean shift é a média dos vetores dos membros.
-* `np.array(aux)[0]` pegava um escalar em vez do vetor na comparação.
-* A interseção era assimétrica (`sim(A,B) ≠ sim(B,A)`).
-* Faltava a fase de junção.
-* Os blocos de 500 faziam o resultado depender da ordem do arquivo; foram removidos.
-* O comprimento contava o `\n` e o leitor só aceitava FASTA com a sequência em uma linha.
-* Dependências sem uso (`cv2`, `glimpy`, `statsmodels`, `requests`, vários modelos do scikit-learn) foram removidas; só precisa de `numpy`.

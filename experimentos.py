@@ -7,11 +7,10 @@
 # ###################################################################################
 
 import csv
-import os
 import time
 import tracemalloc
 
-from avaliar import ROTULOS, avaliar, ler_clstr
+from avaliar import ROTULOS, avaliar
 from kmer import carregar
 from meshclust import meshclust
 
@@ -23,10 +22,6 @@ DATASETS = [
     ("hbv.fasta", ["genotipo", "regiao"], False),
     ("sequencias.fasta", ["especie", "genero"], False),
     ("sequencias.fasta", ["especie", "genero"], True),
-]
-ORIGINAL = [
-    ("sequencias.fasta", "original/output95.clstr", "original (2020)", 0.95),
-    ("sequencias.fasta", "original/output80.clstr", "original (2020)", 0.80),
 ]
 
 
@@ -80,15 +75,6 @@ def main():
                     linhas_csv.append(linha_csv(titulo, "meshclust", kmer, limiar, r, metricas[r],
                                                 f"{tempo:.3f}", f"{pico / 2**20:.2f}"))
                 print(f"{titulo} k-mer={kmer} limiar={limiar} ({tempo:.2f}s)")
-
-        for arq, clstr, descricao, limiar in ORIGINAL:
-            if arq == arquivo and not so_rotuladas and os.path.exists(clstr):
-                nomes, clusters = ler_clstr(clstr)
-                metricas = {r: avaliar(nomes, clusters, r) for r in rotulos}
-                md.append(f"| {descricao} | {limiar} | {metricas[rotulos[0]]['clusters']} | "
-                          + " | ".join(formatar(metricas[r]) for r in rotulos) + " | - | - |")
-                for r in rotulos:
-                    linhas_csv.append(linha_csv(titulo, "original", "", limiar, r, metricas[r]))
         md.append("")
 
     with open("RESULTADOS.md", "w") as saida:
